@@ -1,0 +1,369 @@
+apiVersion: v1
+kind: Template
+labels:
+  app: sonarqube
+  template: sonarqube-ephemeral
+metadata:
+  annotations:
+    description: SonarQube - ephemeral
+      see https://github.com/faust64/docker-sonarqube
+    iconClass: icon-openshift
+    openshift.io/display-name: SonarQube
+    tags: sonarqube
+  name: sonarqube-ephemeral
+objects:
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      name: postgres-${FRONTNAME}
+    name: postgres-${FRONTNAME}
+  spec:
+    replicas: 1
+    selector:
+      name: postgres-${FRONTNAME}
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          name: postgres-${FRONTNAME}
+      spec:
+        containers:
+        - env:
+          - name: POSTGRESQL_USER
+            valueFrom:
+              secretKeyRef:
+                key: database-user
+                name: postgres-${FRONTNAME}
+          - name: POSTGRESQL_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: database-password
+                name: postgres-${FRONTNAME}
+          - name: POSTGRESQL_DATABASE
+            valueFrom:
+              secretKeyRef:
+                key: database-name
+                name: postgres-${FRONTNAME}
+          - name: POSTGRESQL_ADMIN_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: database-admin-password
+                name: postgres-${FRONTNAME}
+          - name: TZ
+            value: Europe/Paris
+          image: ' '
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: 5432
+            timeoutSeconds: 1
+          name: postgres
+          ports:
+          - containerPort: 5432
+            protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+              - /bin/sh
+              - -i
+              - -c
+              - psql -h 127.0.0.1 -U $POSTGRESQL_USER -q -d $POSTGRESQL_DATABASE -c 'SELECT 1'
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              memory: "${DATABASE_MEMORY_LIMIT}"
+            requests:
+              memory: "${DATABASE_MEMORY_REQUEST}"
+          volumeMounts:
+          - mountPath: /var/lib/pgsql/data
+            name: data
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - emptyDir: {}
+          name: data
+    test: false
+    triggers:
+    - type: ConfigChange
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - postgres
+        from:
+          kind: ImageStreamTag
+          name: postgresql:${POSTGRES_VERSION}
+          namespace: openshift
+        lastTriggeredImage: ""
+      type: ImageChange
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: postgres-${FRONTNAME}
+  spec:
+    ports:
+    - name: 5432-tcp
+      port: 5432
+      protocol: TCP
+      targetPort: 5432
+    selector:
+      name: postgres-${FRONTNAME}
+- apiVersion: v1
+  data:
+    sonar.properties: |-
+      sonar.web.javaOpts=${JAVA_OPTS}
+    wrapper.conf: |-
+      wrapper.java.command=java
+      wrapper.java.additional.1=-Dsonar.wrapped=true
+      wrapper.java.additional.2=-Djava.awt.headless=true
+      wrapper.java.mainclass=org.tanukisoftware.wrapper.WrapperSimpleApp
+      wrapper.java.classpath.1=../../lib/jsw/*.jar
+      wrapper.java.classpath.2=../../lib/common/*.jar
+      wrapper.java.classpath.3=../../lib/*.jar
+      wrapper.java.library.path.1=./lib
+      wrapper.app.parameter.1=org.sonar.application.App
+      wrapper.java.initmemory=8
+      wrapper.java.maxmemory=32
+      wrapper.console.format=PM
+      wrapper.console.loglevel=INFO
+      wrapper.logfile=../../logs/sonar.log
+      wrapper.logfile.format=M
+      wrapper.logfile.loglevel=INFO
+      wrapper.syslog.loglevel=NONE
+      wrapper.console.title=SonarQube
+      wrapper.single_invocation=true
+      wrapper.ntservice.name=SonarQube
+      wrapper.ntservice.displayname=SonarQube
+      wrapper.ntservice.dependency.1=
+      wrapper.ntservice.starttype=AUTO_START
+      wrapper.ntservice.interactive=false
+      wrapper.disable_restarts=TRUE
+      wrapper.ping.timeout=0
+      wrapper.shutdown.timeout=300
+      wrapper.jvm_exit.timeout=300
+  kind: ConfigMap
+  metadata:
+    name: sonarqube-${FRONTNAME}
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      name: sonarqube-${FRONTNAME}
+    name: sonarqube-${FRONTNAME}
+  spec:
+    replicas: 1
+    selector:
+      name: sonarqube-${FRONTNAME}
+    strategy:
+      recreateParams:
+        timeoutSeconds: 900
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          name: sonarqube-${FRONTNAME}
+      spec:
+        containers:
+        - env:
+          - name: SCANNER_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: password
+                name: scanner-${FRONTNAME}
+          - name: SCANNER_USER
+            valueFrom:
+              secretKeyRef:
+                key: username
+                name: scanner-${FRONTNAME}
+          - name: SONAR_PRIVATE
+            value: "${SONAR_PRIVATE}"
+          - name: SONAR_PROJECT
+            value: "${SONARQUBE_PROJECT}"
+          - name: SONARQUBE_JDBC_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: database-password
+                name: postgres-${FRONTNAME}
+          - name: SONARQUBE_JDBC_URL
+            value: jdbc:postgresql://postgres-${FRONTNAME}/${POSTGRESQL_DATABASE}
+          - name: SONARQUBE_JDBC_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: database-user
+                name: postgres-${FRONTNAME}
+          - name: TZ
+            value: Europe/Paris
+          image: ' '
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /api/system/status
+              port: 9000
+              scheme: HTTP
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            successThreshold: 1
+            timeoutSeconds: 4
+          name: sonarqube
+          ports:
+          - containerPort: 9000
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /api/system/status
+              port: 9000
+              scheme: HTTP
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 4
+          resources:
+            limits:
+              cpu: "${CPU_LIMIT}"
+              memory: "${MEMORY_LIMIT}"
+            requests:
+              cpu: "${CPU_REQUEST}"
+              memory: "${MEMORY_REQUEST}"
+          volumeMounts:
+          - mountPath: /opt/sonarqube/conf
+            name: config
+          - mountPath: /opt/sonarqube/data
+            name: data
+          - mountPath: /opt/sonarqube/data/es5
+            name: es5
+          - mountPath: /opt/sonarqube/logs
+            name: logs
+          - mountPath: /opt/sonarqube/temp
+            name: temp
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        volumes:
+        - configMap:
+            defaultMode: 420
+            name: sonarqube-${FRONTNAME}
+          name: config
+        - emptyDir: {}
+          name: es5
+        - emptyDir: {}
+          name: temp
+        - emptyDir: {}
+          name: logs
+        - emptyDir: {}
+          name: data
+    test: false
+    triggers:
+    - type: ConfigChange
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - sonarqube
+        from:
+          kind: ImageStreamTag
+          name: sonarqube-${SONARQUBE_IMAGE_FRONTNAME}:${SONARQUBE_IMAGE_TAG}
+      type: ImageChange
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: sonarqube-${FRONTNAME}
+  spec:
+    ports:
+    - name: http
+      port: 9000
+      protocol: TCP
+      targetPort: 9000
+    selector:
+      name: sonarqube-${FRONTNAME}
+    type: ClusterIP
+- apiVersion: v1
+  kind: Route
+  metadata:
+    annotations:
+      description: Route for SonarQube's http service.
+    name: sonarqube-${FRONTNAME}
+  spec:
+    host: sonar.${WSWEET_ROOT_DOMAIN}
+    tls:
+      insecureEdgeTerminationPolicy: Redirect
+      termination: edge
+    to:
+      kind: Service
+      name: sonarqube-${FRONTNAME}
+parameters:
+- description: The name of you SonarQube application
+  displayName: Application Name
+  name: FRONTNAME
+  value: demo
+- description: Maximum amount of memory the database can use.
+  displayName: Database Memory Limit
+  name: DATABASE_MEMORY_LIMIT
+  value: 512Mi
+- description: Amount of memory requested starting database.
+  displayName: Database Memory Request
+  name: DATABASE_MEMORY_REQUEST
+  value: 300Mi
+- description: Java JVM Options
+  displayName: Java JVM Options
+  name: JAVA_OPTS
+  value: "-Xmx512m -Xms512m -XX:+HeapDumpOnOutOfMemoryError"
+- description: Maximum amount of memory SonarQube can use.
+  displayName: SonarQube Memory Limit
+  name: MEMORY_LIMIT
+  value: 4Gi
+- description: Amount of memory requested starting SonarQube.
+  displayName: SonarQube Memory Request
+  name: MEMORY_REQUEST
+  value: 3Gi
+- description: Maximum amount of CPU SonarQube can use.
+  displayName: SonarQube CPU Limit
+  name: CPU_LIMIT
+  value: "1"
+- description: Amount of CPU requested starting SonarQube.
+  displayName: SonarQube CPU Request
+  name: CPU_REQUEST
+  value: 850m
+- description: OpenShift SonarQube Repository
+  displayName: OpenShift SonarQube Repository
+  name: OPENSHIFT_SONARQUBE_GIT
+  value: https://github.com/faust64/docker-sonarqube
+- description: OpenShift SonarQube Repository Ref
+  displayName: OpenShift SonarQube Repository Ref
+  name: OPENSHIFT_SONARQUBE_REF
+  value: ""
+- description: Name of the PostgreSQL database accessed.
+  displayName: PostgreSQL Database Name
+  name: POSTGRESQL_DATABASE
+  value: sonar
+- description: PostgreSQL ImageStream Version Tag
+  displayName: PostgreSQL ImageStream Tag
+  name: POSTGRES_VERSION
+  value: "10"
+- description: Should we lock SonarQube public accesses
+  displayName: Should we lock SonarQube public accesses
+  name: SONAR_PRIVATE
+  value: ""
+- name: SONARQUBE_IMAGE_FRONTNAME
+  value: wsweet
+- name: SONARQUBE_IMAGE_TAG
+  value: master
+- description: Default SonarQube Workspace
+  displayName: Default SonarQube Workspace
+  name: SONARQUBE_PROJECT
+  value: ""
+- name: WSWEET_ROOT_DOMAIN
+  description: Wsweet Root Domain
+  displayName: Wsweet Root Domain
+  required: true
+  value: demo.local

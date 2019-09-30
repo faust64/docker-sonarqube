@@ -1,0 +1,308 @@
+apiVersion: v1
+kind: Template
+labels:
+  app: sonarqube
+  template: sonarqube-jenkins-pipeline
+metadata:
+  annotations:
+    description: SonarQube - Jenkinsfile
+      see https://github.com/faust64/docker-sonarqube
+    iconClass: icon-openshift
+    openshift.io/display-name: SonarQube CI
+    tags: sonarqube
+  name: sonarqube-jenkins-pipeline
+objects:
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    annotations:
+      description: Tests Wsweet SonarQube images
+    name: sonarqube-jenkins-pipeline
+  spec:
+    strategy:
+      jenkinsPipelineStrategy:
+        jenkinsfile: |-
+          def frontName    = 'cisq'
+          def gitCommitMsg = ''
+          def templateMark = 'sonarqube-jenkins-ci'
+          def templateSel  = 'jenkins-ci-mark'
+          pipeline {
+              agent {
+                  node { label 'maven' }
+              }
+              options { timeout(time: 160, unit: 'MINUTES') }
+              parameters {
+                  string(defaultValue: '3', description: 'Max Retry', name: 'jobMaxRetry')
+                  string(defaultValue: '1', description: 'Retry Count', name: 'jobRetryCount')
+                  string(defaultValue: '${OPENSHIFT_ROUTED_DOMAIN}', description: 'CI Router Root Domain', name: 'rootDomain')
+                  string(defaultValue: 'master', description: 'SonarQube Docker Image - Source Git Branch', name: 'sonarqubeBranch')
+                  string(defaultValue: 'master', description: 'SonarQube Docker Image - Source Git Hash', name: 'sonarqubeHash')
+                  string(defaultValue: '${GIT_SOURCE_HOST}/CI/docker-sonarqube.git', description: 'SonarQube Docker Image - Source Git Repository', name: 'sonarqubeRepo')
+              }
+              stages {
+                  stage('pre-cleanup') {
+                      steps {
+                          script {
+                              openshift.withCluster() {
+                                  openshift.withProject() {
+                                      echo "Using project: ${openshift.project()}"
+                                      echo "cleaning up previous assets for sonarqube-${frontName}-${params.sonarqubeHash}"
+                                      openshift.selector("all", [ "${templateSel}": "${templateMark}-${params.sonarqubeHash}" ]).delete()
+                                      openshift.selector("configmaps", [ "${templateSel}": "${templateMark}-${params.sonarqubeHash}" ]).delete()
+                                      openshift.selector("secrets", [ "${templateSel}": "${templateMark}-${params.sonarqubeHash}" ]).delete()
+                                  }
+                              }
+                          }
+                      }
+                  }
+                  stage('create') {
+                      steps {
+                          script {
+                              openshift.withCluster() {
+                                  openshift.withProject() {
+                                      def namespace = "${openshift.project()}"
+                                      try {
+                                          timeout(10) {
+                                              def cloneProto = "http"
+                                              def created
+                                              def objectsFromTemplate
+                                              def privateRepo = false
+                                              def repoHost = params.sonarqubeRepo.split('/')[0]
+                                              def templatePath = "/tmp/workspace/${namespace}/${namespace}-sonarqube-jenkins-pipeline/tmpsonarqube${params.sonarqubeBranch}/openshift"
+                                              sh "git config --global http.sslVerify false"
+                                              sh "rm -fr tmpsonarqube${params.sonarqubeBranch}; mkdir -p tmpsonarqube${params.sonarqubeBranch}"
+                                              dir ("tmpsonarqube${params.sonarqubeBranch}") {
+                                                  try {
+                                                      withCredentials([string(credentialsId: "git-${repoHost}", variable: 'GIT_TOKEN')]) {
+                                                          cloneProto = "https"
+                                                          privateRepo = true
+                                                          echo "cloning ${params.sonarqubeRepo} over https, using ${repoHost} token"
+                                                          try { git([ branch: "${params.sonarqubeBranch}", url: "https://${GIT_TOKEN}@${params.sonarqubeRepo}" ]) }
+                                                          catch(e2) {
+                                                              echo "Failed cloning ${params.sonarqubeRepo}#${params.sonarqubeBranch} - ${e2}"
+                                                              throw e2
+                                                          }
+                                                      }
+                                                  } catch(e) {
+                                                      if (privateRepo != true) {
+                                                          echo "caught ${e} - assuming no credentials required"
+                                                          echo "cloning ${params.sonarqubeRepo} over http"
+                                                          try { git([ branch: "${params.sonarqubeBranch}", url: "http://${params.sonarqubeRepo}" ]) }
+                                                          catch(e2) {
+                                                              echo "Failed cloning ${params.sonarqubeRepo}#${params.sonarqubeBranch} - ${e2}"
+                                                              throw e2
+                                                          }
+                                                      } else { throw e }
+                                                  }
+                                                  try {
+                                                      gitCommitMsg = sh(returnStdout: true, script: "git log -n 1").trim()
+                                                  } catch(e) { echo "In non-critical catch block resolving commit message - ${e}" }
+                                              }
+                                              try { sh "test -d ${templatePath}" }
+                                              catch (e) {
+                                                  echo "Could not find ./openshift in ${params.sonarqubeRepo}#${params.sonarqubeBranch}"
+                                                  throw e
+                                              }
+                                              echo "Processing SonarQube:${params.sonarqubeHash}, from ${repoHost}, tagging to ${params.sonarqubeBranch}"
+                                              try {
+                                                  echo " == Creating ImageStream =="
+                                                  objectsFromTemplate = openshift.process("-f", "${templatePath}/imagestream.yaml", '-p', "FRONTNAME=wsweet")
+                                                  echo "The template will create ${objectsFromTemplate.size()} objects"
+                                                  created = openshift.apply(objectsFromTemplate)
+                                                  created.withEach { echo "Created ${it.name()} with labels ${it.object().metadata.labels}" }
+                                              } catch(e) { echo "In non-critical catch block while creating ImageStream - ${e}" }
+                                              try {
+                                                  echo " == Creating BuildConfigs =="
+                                                  if (privateRepo) {
+                                                      withCredentials([string(credentialsId: "git-${repoHost}", variable: 'GIT_TOKEN')]) {
+                                                          objectsFromTemplate = openshift.process("-f", "${templatePath}/build-with-secret.yaml", '-p', "GIT_DEPLOYMENT_TOKEN=${GIT_TOKEN}",
+                                                              '-p', "FRONTNAME=wsweet", '-p', "SONARQUBE_REPOSITORY_REF=${params.sonarqubeHash}", '-p', "SONARQUBE_REPOSITORY_URL=${cloneProto}://${params.sonarqubeRepo}")
+                                                      }
+                                                  } else {
+                                                      objectsFromTemplate = openshift.process("-f", "${templatePath}/build.yaml", '-p', "FRONTNAME=wsweet",
+                                                          '-p', "SONARQUBE_REPOSITORY_REF=${params.sonarqubeHash}", '-p', "SONARQUBE_REPOSITORY_URL=${cloneProto}://${params.sonarqubeRepo}")
+                                                  }
+                                                  echo "The template will create ${objectsFromTemplate.size()} objects"
+                                                  for (o in objectsFromTemplate) { o.metadata.labels["${templateSel}"] = "${templateMark}-${params.sonarqubeHash}" }
+                                                  created = openshift.apply(objectsFromTemplate)
+                                                  created.withEach { echo "Created ${it.name()} from template with labels ${it.object().metadata.labels}" }
+                                              } catch(e) { echo "In non-critical catch block while creating BuildConfigs - ${e}" }
+                                              try {
+                                                  echo " == Creating Secrets =="
+                                                  objectsFromTemplate = openshift.process("-f", "${templatePath}/secret.yaml", '-p', "FRONTNAME=${frontName}-${params.sonarqubeHash}")
+                                                  echo "The template will create ${objectsFromTemplate.size()} objects"
+                                                  for (o in objectsFromTemplate) { o.metadata.labels["${templateSel}"] = "${templateMark}-${params.sonarqubeHash}" }
+                                                  created = openshift.create(objectsFromTemplate)
+                                                  created.withEach { echo "Created ${it.name()} from template with labels ${it.object().metadata.labels}" }
+                                              } catch(e) { echo "In non-critical catch block while creating Secret - ${e}" }
+                                              echo " == Creating Demo =="
+                                              objectsFromTemplate = openshift.process("-f", "${templatePath}/run-ephemeral.yaml", '-p', "FRONTNAME=${frontName}-${params.sonarqubeHash}",
+                                                  '-p', "SONARQUBE_IMAGE_TAG=${params.sonarqubeHash}", '-p', "WSWEET_ROOT_DOMAIN=${params.sonarqubeHash}.${params.rootDomain}")
+                                              echo "The template will create ${objectsFromTemplate.size()} objects"
+                                              for (o in objectsFromTemplate) { o.metadata.labels["${templateSel}"] = "${templateMark}-${params.sonarqubeHash}" }
+                                              created = openshift.create(objectsFromTemplate)
+                                              created.withEach { echo "Created ${it.name()} from template with labels ${it.object().metadata.labels}" }
+                                          }
+                                      } catch(e) {
+                                          echo "In catch block while creating resources - ${e}"
+                                          throw e
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+                  stage('build') {
+                      steps {
+                          script {
+                              openshift.withCluster() {
+                                  openshift.withProject() {
+                                      try {
+                                          timeout(120) {
+                                              echo "watching sonarqube-wsweet-${params.sonarqubeHash} docker image build"
+                                              def builds = openshift.selector("bc", [ name: "sonarqube-wsweet-${params.sonarqubeHash}" ]).related('builds')
+                                              builds.untilEach(1) { return (it.object().status.phase == "Complete") }
+                                          }
+                                      } catch(e) {
+                                          echo "In catch block while building Docker image - ${e}"
+                                          throw e
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+                  stage('deploy') {
+                      steps {
+                          script {
+                              openshift.withCluster() {
+                                  openshift.withProject() {
+                                      try {
+                                          timeout(20) {
+                                              def namespace = "${openshift.project()}"
+                                              try {
+                                                  sh """
+                                                  oc login https://kubernetes.default.svc.cluster.local --certificate-authority=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt --token=\$(cat /var/run/secrets/kubernetes.io/serviceaccount/token) > /dev/null 2>&1
+                                                  oc describe -n ${namespace} imagestreamtag sonarqube-wsweet:${params.sonarqubeHash} || exit 1
+                                                  """
+                                              } catch(e) {
+                                                  echo "In catch block while looking for SonarQube image - ${e}"
+                                                  throw e
+                                              }
+                                              retry(2) {
+                                                  echo "watching postgres-${frontName}-${params.sonarqubeHash} deployment rollout"
+                                                  def dc = openshift.selector("dc", [ name: "postgres-${frontName}-${params.sonarqubeHash}" ]).related('pods')
+                                                  dc.untilEach(1) { return (it.object().status.phase == "Running") }
+                                                  echo "watching sonarqube-${frontName}-${params.sonarqubeHash} deployment rollout"
+                                                  dc = openshift.selector("dc", [ name: "sonarqube-${frontName}-${params.sonarqubeHash}" ]).related('pods')
+                                                  dc.untilEach(1) { return (it.object().status.phase == "Running") }
+                                              }
+                                          }
+                                      } catch(e) {
+                                          echo "In catch block while deploying - ${e}"
+                                          throw e
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+                  stage('check') {
+                      steps {
+                          script {
+                              openshift.withCluster() {
+                                  openshift.withProject() {
+                                      try {
+                                          timeout(10) {
+                                              echo "waiting an additional 5 minutes for applications to finish starting up"
+                                              sleep 300
+                                              retry(3) {
+                                                  def sq = httpRequest ignoreSslErrors: true, url: "https://sonar.${params.sonarqubeHash}.${params.rootDomain}", timeout: 30, httpMode: 'GET', validResponseCodes: '200:302,401'
+                                                  println("GET portal status: " + sq.status)
+                                                  println("GET portal content: " + sq.content)
+                                              }
+                                          }
+                                      } catch(e) {
+                                          echo "In catch block while checking SonarQube - ${e}"
+                                          throw e
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+                  stage('tag') {
+                      steps {
+                          script {
+                              if ("${params.sonarqubeBranch}" == "${params.sonarqubeHash}") { echo "skipping tag - source matches target" }
+                              else {
+                                  openshift.withCluster() {
+                                      openshift.withProject() {
+                                          try {
+                                              timeout(5) {
+                                                  def namespace = "${openshift.project()}"
+                                                  retry(3) {
+                                                      sh """
+                                                      oc login https://kubernetes.default.svc.cluster.local --certificate-authority=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt --token=\$(cat /var/run/secrets/kubernetes.io/serviceaccount/token) > /dev/null 2>&1
+                                                      oc tag -n ${namespace} sonarqube-wsweet:${params.sonarqubeHash} sonarqube-wsweet:${params.sonarqubeBranch}
+                                                      """
+                                                  }
+                                              }
+                                          } catch(e) {
+                                              echo "in catch block while tagging SonarQube image - ${e}"
+                                              throw e
+                                          }
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+              post {
+                  always {
+                      script {
+                          openshift.withCluster() {
+                              openshift.withProject() {
+                                  def namespace   = "${openshift.project()}"
+                                  def postJobName = "${namespace}/${namespace}-post-triggers-jenkins-pipeline"
+                                  currentBuild.description = """
+                                  ${params.sonarqubeRepo} ${params.sonarqubeBranch} (try ${params.jobRetryCount}/${params.jobMaxRetry})
+                                  ${gitCommitMsg}
+                                  """.stripIndent()
+                                  echo "cleaning up assets for sonarqube-wsweet-${params.sonarqubeHash}"
+                                  sh "rm -fr /tmp/workspace/${namespace}/${namespace}-sonarqube-jenkins-pipeline/tmpsonarqube${params.sonarqubeBranch}"
+                                  openshift.selector("all", [ "${templateSel}": "${templateMark}-${params.sonarqubeHash}" ]).delete()
+                                  openshift.selector("configmaps", [ "${templateSel}": "${templateMark}-${params.sonarqubeHash}" ]).delete()
+                                  openshift.selector("secrets", [ "${templateSel}": "${templateMark}-${params.sonarqubeHash}" ]).delete()
+                                  def jobParams = [
+                                          [$class: 'StringParameterValue', name: "jobMaxRetry", value: params.jobMaxRetry],
+                                          [$class: 'StringParameterValue', name: "jobRetryCount", value: params.jobRetryCount],
+                                          [$class: 'StringParameterValue', name: "jobStatus", value: currentBuild.currentResult],
+                                          [$class: 'StringParameterValue', name: "sourceBranch", value: params.sonarqubeBranch],
+                                          [$class: 'StringParameterValue', name: "sourceComponent", value: "sonarqube"],
+                                          [$class: 'StringParameterValue', name: "sourceRef", value: params.sonarqubeHash],
+                                          [$class: 'StringParameterValue', name: "sourceRepo", value: params.sonarqubeRepo]
+                                      ]
+                                  try { build job: postJobName, parameters: jobParams, propagate: false, wait: false }
+                                  catch(e) { echo "caught ${e} starting Job post-process" }
+                              }
+                          }
+                      }
+                  }
+                  changed { echo "changed?" }
+                  failure { echo "Build failed (${params.jobRetryCount} out of ${params.jobMaxRetry})" }
+                  success { echo "success!" }
+                  unstable { echo "unstable?" }
+              }
+          }
+      type: JenkinsPipeline
+parameters:
+- name: GIT_SOURCE_HOST
+  description: Git FQDN we would build images from
+  displayName: Git
+  value: github.com
+- name: OPENSHIFT_ROUTED_DOMAIN
+  description: OpenShift Routers-served Root Domain
+  displayName: CI Router Domain
+  value: ci.dev.wopla.io
