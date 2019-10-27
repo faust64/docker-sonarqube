@@ -320,7 +320,7 @@ objects:
       description: Route for SonarQube's http service.
     name: sonarqube
   spec:
-    host: sonar.${WSWEET_ROOT_DOMAIN}
+    host: sonar.${ROOT_DOMAIN}
     tls:
       insecureEdgeTerminationPolicy: Redirect
       termination: edge
@@ -382,8 +382,8 @@ parameters:
   displayName: Default SonarQube Workspace
   name: SONARQUBE_PROJECT
   value: ""
-- name: WSWEET_ROOT_DOMAIN
-  description: Wsweet Root Domain
-  displayName: Wsweet Root Domain
+- name: ROOT_DOMAIN
+  description: Root Domain
+  displayName: Root Domain
   required: true
   value: demo.local

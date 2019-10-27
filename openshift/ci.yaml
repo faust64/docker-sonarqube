@@ -106,7 +106,7 @@ objects:
                                               echo "Processing SonarQube:${params.sonarqubeHash}, from ${repoHost}, tagging to ${params.sonarqubeBranch}"
                                               try {
                                                   echo " == Creating ImageStream =="
-                                                  objectsFromTemplate = openshift.process("-f", "${templatePath}/imagestream.yaml", '-p', "FRONTNAME=wsweet")
+                                                  objectsFromTemplate = openshift.process("-f", "${templatePath}/imagestream.yaml")
                                                   echo "The template will create ${objectsFromTemplate.size()} objects"
                                                   created = openshift.apply(objectsFromTemplate)
                                                   created.withEach { echo "Created ${it.name()} with labels ${it.object().metadata.labels}" }
@@ -116,10 +116,10 @@ objects:
                                                   if (privateRepo) {
                                                       withCredentials([string(credentialsId: "git-${repoHost}", variable: 'GIT_TOKEN')]) {
                                                           objectsFromTemplate = openshift.process("-f", "${templatePath}/build-with-secret.yaml", '-p', "GIT_DEPLOYMENT_TOKEN=${GIT_TOKEN}",
-                                                              '-p', "FRONTNAME=wsweet", '-p', "SONARQUBE_REPOSITORY_REF=${params.sonarqubeHash}", '-p', "SONARQUBE_REPOSITORY_URL=${cloneProto}://${params.sonarqubeRepo}")
+                                                              '-p', "SONARQUBE_REPOSITORY_REF=${params.sonarqubeHash}", '-p', "SONARQUBE_REPOSITORY_URL=${cloneProto}://${params.sonarqubeRepo}")
                                                       }
                                                   } else {
-                                                      objectsFromTemplate = openshift.process("-f", "${templatePath}/build.yaml", '-p', "FRONTNAME=wsweet",
+                                                      objectsFromTemplate = openshift.process("-f", "${templatePath}/build.yaml",
                                                           '-p', "SONARQUBE_REPOSITORY_REF=${params.sonarqubeHash}", '-p', "SONARQUBE_REPOSITORY_URL=${cloneProto}://${params.sonarqubeRepo}")
                                                   }
                                                   echo "The template will create ${objectsFromTemplate.size()} objects"
@@ -129,15 +129,15 @@ objects:
                                               } catch(e) { echo "In non-critical catch block while creating BuildConfigs - ${e}" }
                                               try {
                                                   echo " == Creating Secrets =="
-                                                  objectsFromTemplate = openshift.process("-f", "${templatePath}/secret.yaml", '-p', "FRONTNAME=${frontName}-${params.sonarqubeHash}")
+                                                  objectsFromTemplate = openshift.process("-f", "${templatePath}/secret.yaml")
                                                   echo "The template will create ${objectsFromTemplate.size()} objects"
                                                   for (o in objectsFromTemplate) { o.metadata.labels["${templateSel}"] = "${templateMark}-${params.sonarqubeHash}" }
                                                   created = openshift.create(objectsFromTemplate)
                                                   created.withEach { echo "Created ${it.name()} from template with labels ${it.object().metadata.labels}" }
                                               } catch(e) { echo "In non-critical catch block while creating Secret - ${e}" }
                                               echo " == Creating Demo =="
-                                              objectsFromTemplate = openshift.process("-f", "${templatePath}/run-ephemeral.yaml", '-p', "FRONTNAME=${frontName}-${params.sonarqubeHash}",
-                                                  '-p', "SONARQUBE_IMAGE_TAG=${params.sonarqubeHash}", '-p', "WSWEET_ROOT_DOMAIN=${params.sonarqubeHash}.${params.rootDomain}")
+                                              objectsFromTemplate = openshift.process("-f", "${templatePath}/run-ephemeral.yaml",
+                                                  '-p', "SONARQUBE_IMAGE_TAG=${params.sonarqubeHash}", '-p', "ROOT_DOMAIN=${params.sonarqubeHash}.${params.rootDomain}")
                                               echo "The template will create ${objectsFromTemplate.size()} objects"
                                               for (o in objectsFromTemplate) { o.metadata.labels["${templateSel}"] = "${templateMark}-${params.sonarqubeHash}" }
                                               created = openshift.create(objectsFromTemplate)
@@ -190,11 +190,11 @@ objects:
                                                   throw e
                                               }
                                               retry(2) {
-                                                  echo "watching postgres-${frontName}-${params.sonarqubeHash} deployment rollout"
-                                                  def dc = openshift.selector("dc", [ name: "postgres-${frontName}-${params.sonarqubeHash}" ]).related('pods')
+                                                  echo "watching sonarqube-postgres-${frontName}-${params.sonarqubeHash} deployment rollout"
+                                                  def dc = openshift.selector("dc", [ name: "sonarqube-postgres" ]).related('pods')
                                                   dc.untilEach(1) { return (it.object().status.phase == "Running") }
                                                   echo "watching sonarqube-${frontName}-${params.sonarqubeHash} deployment rollout"
-                                                  dc = openshift.selector("dc", [ name: "sonarqube-${frontName}-${params.sonarqubeHash}" ]).related('pods')
+                                                  dc = openshift.selector("dc", [ name: "sonarqube" ]).related('pods')
                                                   dc.untilEach(1) { return (it.object().status.phase == "Running") }
                                               }
                                           }
