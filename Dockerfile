@@ -2,7 +2,7 @@ FROM openjdk:11
 
 # SonarQube server image for OpenShift Origin
 
-ENV SONAR_VERSION=7.9.1 \
+ENV SONAR_VERSION=8.0 \
     SONARQUBE_HOME=/opt/sonarqube \
     DEBIAN_FRONTEND=noninteractive \
     DESCRIPTION="SonarQube is an open source platform developed by SonarSource for continuous \
@@ -25,23 +25,28 @@ LABEL description="$DESCRIPTION" \
 USER root
 RUN echo "# Install Dumb-init" \
     && apt-get update \
-    && apt-get -y install dumb-init \
+    && apt-get -y install dumb-init apache2-utils postgresql-client \
+	    unzip curl libnss-wrapper \
+    && if test "$DEBUG"; then \
+	echo apt-get -y install vim; \
+    fi \
     && if test "$DO_UPGRADE"; then \
 	echo "# Upgrade Base Image"; \
 	apt-get -y upgrade; \
 	apt-get -y dist-upgrade; \
     fi \
-    && apt-get install -y unzip curl libnss-wrapper \
     && cd /opt \
     && curl -o sonarqube.zip -fSL https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-$SONAR_VERSION.zip \
     && unzip sonarqube.zip \
     && mv sonarqube-$SONAR_VERSION sonarqube \
-    && rm -f sonarqube.zip
+    && apt-get clean \
+    && rm -rf sonarqube.zip /var/lib/apt/lists/* \
+    && unset HTTP_PROXY HTTPS_PROXY NO_PROXY DO_UPGRADE http_proxy https_proxy
 
-ADD config /
+ADD config/*.sh $SONARQUBE_HOME/bin/
 RUN useradd -r sonar \
-    && chmod 775 $SONARQUBE_HOME/bin/run_sonarqube.sh \
-    && /usr/bin/fix-permissions $SONARQUBE_HOME \
+    && chown -R sonar:root $SONARQUBE_HOME \
+    && chmod -R g=u $SONARQUBE_HOME \
     && mv $SONARQUBE_HOME/extensions $SONARQUBE_HOME/extensions-RO \
     && ln -sf $SONARQUBE_HOME/data/extensions $SONARQUBE_HOME/
 

@@ -16,18 +16,18 @@ objects:
   kind: DeploymentConfig
   metadata:
     labels:
-      name: postgres-${FRONTNAME}
-    name: postgres-${FRONTNAME}
+      name: sonarqube-postgres
+    name: sonarqube-postgres
   spec:
     replicas: 1
     selector:
-      name: postgres-${FRONTNAME}
+      name: sonarqube-postgres
     strategy:
       type: Recreate
     template:
       metadata:
         labels:
-          name: postgres-${FRONTNAME}
+          name: sonarqube-postgres
       spec:
         containers:
         - env:
@@ -35,22 +35,22 @@ objects:
             valueFrom:
               secretKeyRef:
                 key: database-user
-                name: postgres-${FRONTNAME}
+                name: sonarqube-postgres
           - name: POSTGRESQL_PASSWORD
             valueFrom:
               secretKeyRef:
                 key: database-password
-                name: postgres-${FRONTNAME}
+                name: sonarqube-postgres
           - name: POSTGRESQL_DATABASE
             valueFrom:
               secretKeyRef:
                 key: database-name
-                name: postgres-${FRONTNAME}
+                name: sonarqube-postgres
           - name: POSTGRESQL_ADMIN_PASSWORD
             valueFrom:
               secretKeyRef:
                 key: database-admin-password
-                name: postgres-${FRONTNAME}
+                name: sonarqube-postgres
           - name: TZ
             value: Europe/Paris
           image: ' '
@@ -110,7 +110,7 @@ objects:
 - apiVersion: v1
   kind: Service
   metadata:
-    name: postgres-${FRONTNAME}
+    name: sonarqube-postgres
   spec:
     ports:
     - name: 5432-tcp
@@ -118,7 +118,7 @@ objects:
       protocol: TCP
       targetPort: 5432
     selector:
-      name: postgres-${FRONTNAME}
+      name: sonarqube-postgres
 - apiVersion: v1
   data:
     sonar.properties: |-
@@ -154,17 +154,17 @@ objects:
       wrapper.jvm_exit.timeout=300
   kind: ConfigMap
   metadata:
-    name: sonarqube-${FRONTNAME}
+    name: sonarqube
 - apiVersion: v1
   kind: DeploymentConfig
   metadata:
     labels:
-      name: sonarqube-${FRONTNAME}
-    name: sonarqube-${FRONTNAME}
+      name: sonarqube
+    name: sonarqube
   spec:
     replicas: 1
     selector:
-      name: sonarqube-${FRONTNAME}
+      name: sonarqube
     strategy:
       recreateParams:
         timeoutSeconds: 900
@@ -172,20 +172,26 @@ objects:
     template:
       metadata:
         labels:
-          name: sonarqube-${FRONTNAME}
+          name: sonarqube
+          tuned.openshift.io/elasticsearch: ""
       spec:
         containers:
         - env:
+          - name: ADMIN_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: password
+                name: sonar-admin
           - name: SCANNER_PASSWORD
             valueFrom:
               secretKeyRef:
                 key: password
-                name: scanner-${FRONTNAME}
+                name: scanner
           - name: SCANNER_USER
             valueFrom:
               secretKeyRef:
                 key: username
-                name: scanner-${FRONTNAME}
+                name: scanner
           - name: SONAR_PRIVATE
             value: "${SONAR_PRIVATE}"
           - name: SONAR_PROJECT
@@ -194,14 +200,14 @@ objects:
             valueFrom:
               secretKeyRef:
                 key: database-password
-                name: postgres-${FRONTNAME}
+                name: sonarqube-postgres
           - name: SONARQUBE_JDBC_URL
-            value: jdbc:postgresql://postgres-${FRONTNAME}/${POSTGRESQL_DATABASE}
+            value: jdbc:postgresql://sonarqube-postgres/${POSTGRESQL_DATABASE}
           - name: SONARQUBE_JDBC_USERNAME
             valueFrom:
               secretKeyRef:
                 key: database-user
-                name: postgres-${FRONTNAME}
+                name: sonarqube-postgres
           - name: TZ
             value: Europe/Paris
           image: ' '
@@ -242,8 +248,8 @@ objects:
             name: config
           - mountPath: /opt/sonarqube/data
             name: data
-          - mountPath: /opt/sonarqube/data/es5
-            name: es5
+          - mountPath: /opt/sonarqube/data/es6
+            name: es6
           - mountPath: /opt/sonarqube/logs
             name: logs
           - mountPath: /opt/sonarqube/temp
@@ -253,10 +259,10 @@ objects:
         volumes:
         - configMap:
             defaultMode: 420
-            name: sonarqube-${FRONTNAME}
+            name: sonarqube
           name: config
         - emptyDir: {}
-          name: es5
+          name: es6
         - emptyDir: {}
           name: temp
         - emptyDir: {}
@@ -272,12 +278,12 @@ objects:
         - sonarqube
         from:
           kind: ImageStreamTag
-          name: sonarqube-${SONARQUBE_IMAGE_FRONTNAME}:${SONARQUBE_IMAGE_TAG}
+          name: sonarqube:${SONARQUBE_IMAGE_TAG}
       type: ImageChange
 - apiVersion: v1
   kind: Service
   metadata:
-    name: sonarqube-${FRONTNAME}
+    name: sonarqube
   spec:
     ports:
     - name: http
@@ -285,14 +291,14 @@ objects:
       protocol: TCP
       targetPort: 9000
     selector:
-      name: sonarqube-${FRONTNAME}
+      name: sonarqube
     type: ClusterIP
 - apiVersion: v1
   kind: Route
   metadata:
     annotations:
       description: Route for SonarQube's http service.
-    name: sonarqube-${FRONTNAME}
+    name: sonarqube
   spec:
     host: sonar.${WSWEET_ROOT_DOMAIN}
     tls:
@@ -300,12 +306,8 @@ objects:
       termination: edge
     to:
       kind: Service
-      name: sonarqube-${FRONTNAME}
+      name: sonarqube
 parameters:
-- description: The name of you SonarQube application
-  displayName: Application Name
-  name: FRONTNAME
-  value: demo
 - description: Maximum amount of memory the database can use.
   displayName: Database Memory Limit
   name: DATABASE_MEMORY_LIMIT
@@ -334,14 +336,6 @@ parameters:
   displayName: SonarQube CPU Request
   name: CPU_REQUEST
   value: 850m
-- description: OpenShift SonarQube Repository
-  displayName: OpenShift SonarQube Repository
-  name: OPENSHIFT_SONARQUBE_GIT
-  value: https://github.com/faust64/docker-sonarqube
-- description: OpenShift SonarQube Repository Ref
-  displayName: OpenShift SonarQube Repository Ref
-  name: OPENSHIFT_SONARQUBE_REF
-  value: ""
 - description: Name of the PostgreSQL database accessed.
   displayName: PostgreSQL Database Name
   name: POSTGRESQL_DATABASE
@@ -354,8 +348,6 @@ parameters:
   displayName: Should we lock SonarQube public accesses
   name: SONAR_PRIVATE
   value: ""
-- name: SONARQUBE_IMAGE_FRONTNAME
-  value: wsweet
 - name: SONARQUBE_IMAGE_TAG
   value: master
 - description: Default SonarQube Workspace

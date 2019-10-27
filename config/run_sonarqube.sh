@@ -13,7 +13,7 @@ if ! test -d /opt/sonarqube/data/extensions; then
 	done
 else
     echo " ++++ Resetting ElasticSearch"
-    if ! find /opt/sonarqube/data/es5 -name '*lock' -type f -exec rm -f {} \;; then
+    if ! find /opt/sonarqube/data/es6 -name '*lock' -type f -exec rm -f {} \;; then
 	echo " +++++ Warning: ES lock files may still be there" >&2
     fi
 fi
@@ -64,12 +64,12 @@ export NSS_WRAPPER_PASSWD=/opt/sonarqube/data/passwd
 export NSS_WRAPPER_GROUP=/etc/group
 export LD_PRELOAD=/usr/lib/libnss_wrapper.so
 
-if test -x /usr/local/bin/provision.sh; then
+if test -x $SONARQUBE_HOME/bin/provision.sh; then
     if ! test -s $SONARQUBE_HOME/data/current_local_password; then
 	echo admin >$SONARQUBE_HOME/data/current_local_password
     fi
     echo Executing provision.sh
-    nohup /usr/local/bin/provision.sh &
+    nohup $SONARQUBE_HOME/bin/provision.sh &
 fi
 
 exec java -jar lib/sonar-application-$SONAR_VERSION.jar \

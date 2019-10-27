@@ -15,11 +15,11 @@ test -z "$ADMIN_PASSWORD" && ADMIN_PASSWORD="$password"
 
 pretty_sleep()
 {
-    secs=${1:-60}
-    tool=${2:-'service'}
+    secs="${1:-60}"
+    tool="${2:-service}"
     while test "$secs" -gt 0
     do
-	echo -ne "$tool unavailable, sleeping for: $secs\033[0Ks\r"
+	/bin/echo -ne "$tool unavailable, sleeping for: $secs\033[0Ks\r"
 	sleep 1
 	secs=`expr $secs - 1`
     done
@@ -36,6 +36,19 @@ do
     cpt=`expr $cpt + 1`
 done
 if ! curl -I -s "$sonar_host/" | head -n 1 | awk '{print $2}' | grep 200 >/dev/null; then
+    echo bailing out
+    exit 1
+fi
+
+echo "* Waiting for API to become available"
+cpt=0
+while ! curl -u "$username:$password" "$sonar_host/api/users/search" 2>/dev/null | grep "\"$username\"" >/dev/null
+do
+    test "$cpt" -ge 60 && break
+    pretty_sleep 10 API
+    cpt=`expr $cpt + 1`
+done
+if ! curl -u "$username:$password" "$sonar_host/api/users/search" 2>/dev/null | grep "\"$username\"" >/dev/null; then
     echo bailing out
     exit 1
 fi
