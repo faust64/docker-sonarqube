@@ -50,8 +50,6 @@ initialization by passing `-e VAR=VALUE` to the Docker `run` command.
 |    Variable name            |    Description                          | Default      |
 | :-------------------------- | --------------------------------------- | ------------ |
 |  `ADMIN_PASSWORD`           | Administrator Password                  | `admin`      |
-|  `ENABLE_OAUTH`             | Setting up OAuth                        | undef        |
-|  `OC_ROOT_DOMAIN`           | Setting up OAuth, OpenShift root domain | undef        |
 |  `SCANNER_PASSWORD`         | Default Scanner Password                | undef        |
 |  `SCANNER_USER`             | Default Scanner User                    | undef        |
 |  `SONAR_PRIVATE`            | Close Anonymous Accesses to Sonarqube   | undef        |
