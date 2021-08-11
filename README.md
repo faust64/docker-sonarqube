@@ -1,5 +1,8 @@
 # SonarQube
 
+WARNING: this repository is no longer maintained! As it was migrated to GitLab:
+https://gitlab.com/synacksynack/opsperator/docker-sonarqube
+
 OpenShift-friendly SonarQube image, based on
 https://github.com/SonarSource/docker-sonarqube
 
