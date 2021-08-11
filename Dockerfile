@@ -2,7 +2,7 @@ FROM openjdk:11
 
 # SonarQube server image for OpenShift Origin
 
-ENV SONAR_VERSION=8.0 \
+ENV SONAR_VERSION=8.3.1.34397 \
     SONARQUBE_HOME=/opt/sonarqube \
     DEBIAN_FRONTEND=noninteractive \
     DESCRIPTION="SonarQube is an open source platform developed by SonarSource for continuous \
@@ -26,7 +26,7 @@ USER root
 RUN echo "# Install Dumb-init" \
     && apt-get update \
     && apt-get -y install dumb-init apache2-utils postgresql-client \
-	    unzip curl libnss-wrapper \
+	unzip curl libnss-wrapper \
     && if test "$DEBUG"; then \
 	echo apt-get -y install vim; \
     fi \

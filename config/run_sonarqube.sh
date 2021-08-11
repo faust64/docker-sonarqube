@@ -32,9 +32,6 @@ if test -d /opt/sonarqube/lib/bundled-plugins; then
 	fi
     done
 fi
-if test "$ENABLE_OAUTH"; then
-    INSTALL_PLUGINS="$INSTALL_PLUGINS https://github.com/rht-labs/sonar-auth-openshift/releases/latest/download/sonar-auth-openshift-plugin.jar"
-fi
 if test "$INSTALL_PLUGINS"; then
     (
 	cd /opt/sonarqube/data/extensions/plugins
@@ -75,23 +72,10 @@ if test -x $SONARQUBE_HOME/bin/provision.sh; then
     nohup $SONARQUBE_HOME/bin/provision.sh &
 fi
 
-if test "$ENABLE_OAUTH"; then
-    OC_ROOT_DOMAIN=${OC_ROOT_DOMAIN:-demo.local}
-    exec java -jar lib/sonar-application-$SONAR_VERSION.jar \
-	-Dsonar.log.console=true \
-	-Dsonar.jdbc.username="$SONARQUBE_JDBC_USERNAME" \
-	-Dsonar.jdbc.password="$SONARQUBE_JDBC_PASSWORD" \
-	-Dsonar.jdbc.url="$SONARQUBE_JDBC_URL" \
-	-Dsonar.auth.openshift.isEnabled=true \
-	-Dsonar.auth.openshift.webUrl=https://oauth-openshift.apps.$OC_ROOT_DOMAIN \
-	-Dsonar.web.javaAdditionalOpts="$SONARQUBE_WEB_JVM_OPTS -Djava.security.egd=file:/dev/./urandom" \
-	"$@"
-else
-    exec java -jar lib/sonar-application-$SONAR_VERSION.jar \
-	-Dsonar.log.console=true \
-	-Dsonar.jdbc.username="$SONARQUBE_JDBC_USERNAME" \
-	-Dsonar.jdbc.password="$SONARQUBE_JDBC_PASSWORD" \
-	-Dsonar.jdbc.url="$SONARQUBE_JDBC_URL" \
-	-Dsonar.web.javaAdditionalOpts="$SONARQUBE_WEB_JVM_OPTS -Djava.security.egd=file:/dev/./urandom" \
-	"$@"
-fi
+exec java -jar lib/sonar-application-$SONAR_VERSION.jar \
+    -Dsonar.log.console=true \
+    -Dsonar.jdbc.username="$SONARQUBE_JDBC_USERNAME" \
+    -Dsonar.jdbc.password="$SONARQUBE_JDBC_PASSWORD" \
+    -Dsonar.jdbc.url="$SONARQUBE_JDBC_URL" \
+    -Dsonar.web.javaAdditionalOpts="$SONARQUBE_WEB_JVM_OPTS -Djava.security.egd=file:/dev/./urandom" \
+    "$@"
